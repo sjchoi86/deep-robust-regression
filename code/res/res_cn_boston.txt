@@ -1,0 +1,13 @@
+Text name: res/res_cn_boston.txt
+[0/1000] loss:0.511(gmm:0.510+kl:0.000+l2:0.000+fit:0.000) bestLoss:inf
+[100/1000] loss:-0.541(gmm:-0.541+kl:0.000+l2:0.000+fit:0.000) bestLoss:inf
+[200/1000] loss:-0.640(gmm:-0.641+kl:0.000+l2:0.000+fit:0.000) bestLoss:inf
+[300/1000] loss:-0.757(gmm:-0.757+kl:0.000+l2:0.000+fit:0.000) bestLoss:inf
+[400/1000] loss:-0.902(gmm:-0.902+kl:0.000+l2:0.000+fit:0.000) bestLoss:inf
+[500/1000] loss:-0.861(gmm:-0.861+kl:0.000+l2:0.000+fit:0.000) bestLoss:-0.883
+[600/1000] loss:-0.989(gmm:-0.989+kl:0.000+l2:0.000+fit:0.000) bestLoss:-1.001
+[700/1000] loss:-0.999(gmm:-0.999+kl:0.000+l2:0.000+fit:0.000) bestLoss:-1.021
+[800/1000] loss:-0.999(gmm:-0.999+kl:0.000+l2:0.000+fit:0.000) bestLoss:-1.046
+[900/1000] loss:-1.021(gmm:-1.021+kl:0.000+l2:0.000+fit:0.000) bestLoss:-1.049
+[999/1000] loss:-1.032(gmm:-1.032+kl:0.000+l2:0.000+fit:0.000) bestLoss:-1.049
+[1000/1000] loss:-1.039(gmm:-1.039+kl:0.000+l2:0.000+fit:0.000) bestLoss:-1.049
