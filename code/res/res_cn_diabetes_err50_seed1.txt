@@ -1,0 +1,1 @@
+Text name: res/res_cn_diabetes_err50_seed1.txt

@@ -348,7 +348,7 @@ class cn_reg_class(object): # ChoiceNet
         best_loss_val = np.inf
         if _SAVE_TXT:
             txt_name = ('res/res_%s.txt'%(self.name));f = open(txt_name,'w') # Open txt file
-            print_n_txt(_f=f,_chars='Text name: '+txt_name,_DO_PRINT=True)
+            print_n_txt(_f=f,_chars='Text name: '+txt_name,_DO_PRINT=self.VERBOSE)
         for epoch in range((int)(_max_epoch)+1): # For every epoch
             train_rate = (float)(epoch/_max_epoch)
             x_train,y_train = shuffle(x_train,y_train)

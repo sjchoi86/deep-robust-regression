@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 class mlp_reg_class(object):
     def __init__(self,_name='mlp_reg',_x_dim=1,_y_dim=1,_h_dims=[64, 64],_actv=tf.nn.tanh,_bn=slim.batch_norm,
-                _l2_reg_coef=1e-5,_GPU_ID=0,_VERBOSE=True):
+                _l2_reg_coef=1e-5,_GPU_ID=0,_L1_LOSS=False,_ROBUST_LOSS=False,_LEAKY_ROBUST_LOSS=False,_VERBOSE=True):
         self.name = _name
         self.x_dim = _x_dim
         self.y_dim = _y_dim
@@ -20,6 +20,9 @@ class mlp_reg_class(object):
         self.bn = _bn
         self.l2_reg_coef = _l2_reg_coef
         self.GPU_ID = _GPU_ID
+        self.L1_LOSS = _L1_LOSS
+        self.ROBUST_LOSS = _ROBUST_LOSS
+        self.LEAKY_ROBUST_LOSS = _LEAKY_ROBUST_LOSS
         self.VERBOSE = _VERBOSE
         
         if _GPU_ID < 0:  # with CPU only (no GPU)
@@ -69,22 +72,62 @@ class mlp_reg_class(object):
                                                 ,scope='out') # [N x D]
     
     def build_graph(self):
-        # L2 fitting loss
-        self._loss_fit = tf.reduce_sum(tf.pow(self.out-self.y,2),axis=1) # [N x 1]
-        self.loss_fit = tf.reduce_mean(self._loss_fit) # [1]
+        # fitting loss
+        if self.L1_LOSS: # L1 loss
+            self._loss_fit = tf.reduce_sum(tf.abs(self.out-self.y),axis=1) # [N x 1]
+            self.loss_fit = tf.reduce_mean(self._loss_fit) # [1]
+        elif self.ROBUST_LOSS: # Tukey biweight loss
+            USE_MAD = False
+            self.residuals = self.out-self.y # [N x 1]
+            if USE_MAD:
+                median = tf.contrib.distributions.percentile(self.residuals, 50.0)
+                temp = tf.abs(self.residuals-median)
+                mad = tf.contrib.distributions.percentile(temp, 50.0)
+                b = 1.4826 # 1.4826
+                self.r_mad = self.residuals/b/mad
+            else:
+                self.r_mad = self.residuals
+            c = 1 # 4.6851 
+            self.condition = tf.less(tf.abs(self.r_mad),c)
+            self._loss_fit = tf.where(self.condition,
+                                      c*c/6*(1-tf.pow((1-tf.pow(self.r_mad/c,2)),3)),
+                                      c*c/6*tf.ones_like(self.r_mad)) # [N x 1]
+            self.loss_fit = tf.reduce_mean(self._loss_fit) # [1]
+        elif self.LEAKY_ROBUST_LOSS: # Leakey Tukey biweight loss
+            USE_MAD = False
+            self.residuals = self.out-self.y # [N x 1]
+            if USE_MAD:
+                median = tf.contrib.distributions.percentile(self.residuals, 50.0)
+                temp = tf.abs(self.residuals-median)
+                mad = tf.contrib.distributions.percentile(temp, 50.0)
+                b = 1.4826 # 1.4826
+                self.r_mad = self.residuals/b/mad
+            else:
+                self.r_mad = self.residuals
+            c = 1 # 4.6851
+            self.condition = tf.less(tf.abs(self.r_mad),c)
+            leaky_rate = 0.1 # 0.1
+            self._loss_fit = tf.where(self.condition,
+                                      c*c/6*(1-tf.pow((1-tf.pow(self.r_mad/c,2)),3)),
+                                      leaky_rate*(tf.abs(self.r_mad)-c) + c*c/6) # [N x 1]
+            self.loss_fit = tf.reduce_mean(self._loss_fit) # [1]
+        else: # ordinary L2 loss
+            self._loss_fit = tf.reduce_sum(tf.pow(self.out-self.y,2),axis=1) # [N x 1]
+            self.loss_fit = tf.reduce_mean(self._loss_fit) # [1]
+            
         # Weight decay
         _t_vars = tf.trainable_variables()
         self.c_vars = [var for var in _t_vars if '%s/'%(self.name) in var.name]
         self.l2_reg = self.l2_reg_coef*tf.reduce_sum(tf.stack([tf.nn.l2_loss(v) for v in self.c_vars])) # [1]
         self.loss_total = self.loss_fit + self.l2_reg # [1]
         # Optimizer
-        USE_ADAM = True
+        USE_ADAM = False
         if USE_ADAM:
             self.optm = tf.train.AdamOptimizer(learning_rate=self.lr,beta1=0.9,beta2=0.999
-                                               ,epsilon=1e-0).minimize(self.loss_total)
+                                               ,epsilon=1e-8).minimize(self.loss_total)
         else:
             self.optm = tf.train.MomentumOptimizer(learning_rate=self.lr
-                                                   ,momentum=0.0).minimize(self.loss_total)
+                                                   ,momentum=0.5).minimize(self.loss_total)
 
     def check_params(self):
         _g_vars = tf.global_variables()
@@ -193,7 +236,7 @@ class mlp_reg_class(object):
         best_loss_val = np.inf
         if _SAVE_TXT:
             txt_name = ('res/res_%s.txt'%(self.name));f = open(txt_name,'w') # Open txt file
-            print_n_txt(_f=f,_chars='Text name: '+txt_name,_DO_PRINT=True)
+            print_n_txt(_f=f,_chars='Text: '+txt_name,_DO_PRINT=self.VERBOSE)
         for epoch in range((int)(_max_epoch)+1): # For every epoch
             x_train,y_train = shuffle(x_train,y_train)
             nzd_x_train,nzd_y_train = self.nzr_x.get_nzdval(x_train),self.nzr_y.get_nzdval(y_train)
@@ -242,23 +285,23 @@ class mlp_reg_class(object):
                                %(epoch,_max_epoch,loss_val,loss_fit,l2_reg,best_loss_val))
                     print_n_txt(_f=f,_chars=str_temp,_DO_PRINT=self.VERBOSE)
                 else:
-                    if self.VERBOSE:
+                    if self.VERBOSE | True :
                         print ("[%d/%d] loss:%.3f(fit:%.3f+l2:%.3f) bestLoss:%.3f"
-                                   %(epoch,_max_epoch,lossVal,loss_fit,l2_reg,best_loss_val))
+                                   %(epoch,_max_epoch,loss_val,loss_fit,l2_reg,best_loss_val))
 
             # Plot current result 
             if (plot_period!=0) and ((epoch%plot_period)==0 or (epoch==(_max_epoch-1))): # Plot
                 # Get loss vals
                 feeds = {self.x:nzd_x_train,self.y:nzd_y_train,self.kp:1.0,self.is_training:False}
                 opers = [self.loss_total,self.loss_fit,self.l2_reg]
-                lossVal,loss_fit,l2_reg = _sess.run(opers,feeds)
+                loss_val,loss_fit,l2_reg = _sess.run(opers,feeds)
                 # Output
                 nzd_y_test = self.sampler(_sess=_sess,_x=nzd_x_train)
                 y_pred = self.nzr_y.get_orgval(nzd_y_test)[:,0]
                 # Plot one dimensions of both input and output
                 x_plot,y_plot = x_train[:,self.x_dim4plot],y_train[:,0] # Traning data 
                 plt.figure(figsize=(8,4))
-                plt.axis([np.min(x_plot),np.max(x_plot),np.min(y_plot)-0.1,np.max(y_plot)+0.1])
+                # plt.axis([np.min(x_plot),np.max(x_plot),np.min(y_plot)-0.1,np.max(y_plot)+0.1])
                 h_tr,=plt.plot(x_plot,y_plot,'k.') # Plot training data
                 h_pr,=plt.plot(x_plot,y_pred,'b.') # Plot prediction
                 plt.title("[%d/%d] name:[%s] loss_val:[%.3e]"%(epoch,_max_epoch,self.name,loss_val),fontsize=13); 
@@ -284,12 +327,18 @@ class mlp_reg_class(object):
         
         self.x_dim4plot = _x_dim4plot
         self.x_name4plot = _x_name4plot
-
+        self.nzr_x,self.nzr_y = nzr(_x_train),nzr(_y_train) # get normalizer
+            
         # Get normalizer 
         if len(np.shape(_y_train)) == 1: # if y is a vector
             _y_train = np.reshape(_y_train,newshape=[-1,1]) # make it rank two
-        self.nzr_x,self.nzr_y = nzr(_x_train),nzr(_y_train) # get normalizer
-        
+            self.nzr_x,self.nzr_y = nzr(_x_train),nzr(_y_train) # get normalizer
+            self.nzr_x,self.nzr_y = nzr(_x_train),nzr(y_train) # get normalizer
+            self.nzr_x.mu, self.nzr_x.std = 0,1
+            self.nzr_y.mu, self.nzr_y.std = 0,1
+        else:
+            self.nzr_x,self.nzr_y = nzr(_x_train),nzr(_y_train) # get normalizer
+            
         # Plot train data and predictions
         if _PLOT_TRAIN:
             if len(np.shape(_y_train)) == 1: # if y is a vector
@@ -329,7 +378,7 @@ class mlp_reg_class(object):
             h_pr,=plt.plot(x_test4plot,y_pred_test,'b.') # plot prediction for the test data
             h_te,=plt.plot(x_test4plot,y_test4plot,'r.') # plot test data
 
-            plt.legend([h_pr,h_te],['Test data','Test predictions'],fontsize=13,loc='upper left')
+            plt.legend([h_pr,h_te],['Test predictions','Test data'],fontsize=13,loc='upper left')
             if self.x_name4plot != None:
                 plt.xlabel(self.x_name4plot,fontsize=13)
             plt.ylabel('Output',fontsize=13)           
